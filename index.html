@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>企业知识库 AI 助手</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f5f7fa; height: 100vh; display: flex; }
+
+  /* 左侧：文档管理 */
+  .sidebar { width: 320px; background: #fff; border-right: 1px solid #e4e7ed; display: flex; flex-direction: column; }
+  .sidebar h2 { padding: 20px; border-bottom: 1px solid #e4e7ed; font-size: 16px; }
+  .upload-area { padding: 15px; }
+  .upload-btn { width: 100%; padding: 10px; background: #409eff; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  .upload-btn:hover { background: #337ecc; }
+  #fileInput { display: none; }
+  .doc-list { flex: 1; overflow-y: auto; padding: 10px 15px; }
+  .doc-item { padding: 10px; margin-bottom: 8px; background: #f4f5f7; border-radius: 6px; font-size: 13px; }
+  .doc-item .name { font-weight: 600; margin-bottom: 4px; }
+  .doc-item .info { color: #909399; font-size: 12px; }
+  .status { padding: 10px 15px; font-size: 12px; color: #909399; border-top: 1px solid #e4e7ed; }
+
+  /* 右侧：聊天区 */
+  .chat { flex: 1; display: flex; flex-direction: column; }
+  .chat-header { padding: 15px 20px; background: #fff; border-bottom: 1px solid #e4e7ed; font-size: 16px; font-weight: 600; }
+  .messages { flex: 1; overflow-y: auto; padding: 20px; }
+  .msg { margin-bottom: 16px; display: flex; }
+  .msg.user { justify-content: flex-end; }
+  .msg .bubble { max-width: 70%; padding: 10px 14px; border-radius: 10px; line-height: 1.5; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+  .msg.user .bubble { background: #409eff; color: #fff; border-bottom-right-radius: 2px; }
+  .msg.assistant .bubble { background: #fff; border: 1px solid #e4e7ed; border-bottom-left-radius: 2px; }
+  .msg.system .bubble { background: #fff9e6; border: 1px solid #f5c672; color: #8a6d3b; font-size: 13px; }
+  .sources { margin-top: 6px; font-size: 12px; color: #909399; }
+  .sources span { background: #f4f5f7; padding: 2px 6px; border-radius: 3px; margin-right: 4px; }
+  .typing { color: #909399; font-style: italic; }
+
+  /* 输入区 */
+  .input-area { padding: 15px 20px; background: #fff; border-top: 1px solid #e4e7ed; display: flex; gap: 10px; }
+  #questionInput { flex: 1; padding: 10px 14px; border: 1px solid #dcdfe6; border-radius: 6px; font-size: 14px; outline: none; }
+  #questionInput:focus { border-color: #409eff; }
+  #sendBtn { padding: 10px 20px; background: #409eff; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  #sendBtn:hover { background: #337ecc; }
+  #sendBtn:disabled { background: #c0c4cc; cursor: not-allowed; }
+</style>
+</head>
+<body>
+  <div class="sidebar">
+    <h2>📚 知识库</h2>
+    <div class="upload-area">
+      <button class="upload-btn" onclick="document.getElementById('fileInput').click()">上传文档</button>
+      <input type="file" id="fileInput" accept=".pdf,.txt,.md">
+    </div>
+    <div class="doc-list" id="docList">
+      <div style="color:#909399;font-size:13px;text-align:center;padding:20px;">暂无文档，请上传</div>
+    </div>
+    <div class="status" id="status">未连接</div>
+  </div>
+
+  <div class="chat">
+    <div class="chat-header">💬 企业知识库 AI 助手</div>
+    <div class="messages" id="messages">
+      <div class="msg assistant">
+        <div class="bubble">你好！我是企业知识库AI助手。请先在左侧上传文档，然后向我提问。</div>
+      </div>
+    </div>
+    <div class="input-area">
+      <input type="text" id="questionInput" placeholder="输入问题，按回车发送..." onkeydown="if(event.key==='Enter')sendQuestion()">
+      <button id="sendBtn" onclick="sendQuestion()">发送</button>
+    </div>
+  </div>
+
+<script>
+const API_BASE = "http://localhost:8000";
+const conversationId = "user_" + Math.random().toString(36).slice(2, 10);
+
+// 文件上传
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  setStatus(`正在上传 ${file.name}...`);
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const res = await fetch(API_BASE + '/documents/upload', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '上传失败');
+    setStatus(`✅ ${file.name} 已上传，共 ${data.chunks} 个文本块`);
+    loadDocs();
+  } catch (err) {
+    setStatus(`❌ 上传失败: ${err.message}`);
+    addMessage('system', `上传失败：${err.message}`);
+  }
+  e.target.value = '';
+});
+
+// 加载文档列表
+async function loadDocs() {
+  try {
+    const res = await fetch(API_BASE + '/documents');
+    const data = await res.json();
+    const list = document.getElementById('docList');
+    if (!data.documents || data.documents.length === 0) {
+      list.innerHTML = '<div style="color:#909399;font-size:13px;text-align:center;padding:20px;">暂无文档，请上传</div>';
+      return;
+    }
+    list.innerHTML = data.documents.map(d => `
+      <div class="doc-item">
+        <div class="name">📄 ${d.name}</div>
+        <div class="info">${d.chunks} 个分块 · ${new Date(d.added_at).toLocaleString()}</div>
+      </div>`).join('');
+    setStatus(`共 ${data.documents.length} 份文档`);
+  } catch (err) {
+    setStatus('❌ 获取文档列表失败');
+  }
+}
+
+// 发送问题（流式）
+async function sendQuestion() {
+  const input = document.getElementById('questionInput');
+  const question = input.value.trim();
+  if (!question) return;
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  input.value = '';
+
+  addMessage('user', question);
+  const assistantEl = addMessage('assistant', '', true);
+  const bubbleEl = assistantEl.querySelector('.bubble');
+  let fullText = '';
+
+  try {
+    const res = await fetch(API_BASE + '/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, conversation_id: conversationId })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      // 解析 SSE 事件
+      const lines = chunk.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('data:')) {
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') continue;
+          fullText += data;
+          bubbleEl.innerText = fullText;
+          scrollToBottom();
+        }
+      }
+    }
+  } catch (err) {
+    if (!fullText) {
+      bubbleEl.innerText = `连接中断，请重试（${err.message}）`;
+      bubbleEl.classList.add('typing');
+    }
+  }
+  btn.disabled = false;
+  input.focus();
+}
+
+function addMessage(role, text, returnEl = false) {
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = `<div class="bubble"></div>`;
+  div.querySelector('.bubble').innerText = text;
+  container.appendChild(div);
+  scrollToBottom();
+  return returnEl ? div : null;
+}
+
+function scrollToBottom() {
+  const c = document.getElementById('messages');
+  c.scrollTop = c.scrollHeight;
+}
+
+function setStatus(text) {
+  document.getElementById('status').innerText = text;
+}
+
+// 初始化
+loadDocs();
+</script>
+</body>
+</html>
