@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 敏感配置（绝不提交 API Key）
+.env
+
+# 运行时数据（SQLite / 日志）
+data/
+*.log
+server*.log
+
+# 测试与工具
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+
+# 系统
+.DS_Store
+Thumbs.db

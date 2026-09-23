@@ -1,0 +1,13 @@
+.env
+data/
+__pycache__/
+*.pyc
+.git/
+.idea/
+*.log
+.pytest_cache/
+tests/
+eval/corpus/
+eval/dataset.json
+docs/eval_report.md
+.DS_Store
